@@ -34,6 +34,9 @@ export interface ApiErrorBody {
 }
 
 export type ApiErrorCode =
+  | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
+  | 'VACATION_RULES'
   | 'VALIDATION_ERROR'
   | 'USER_NOT_FOUND'
   | 'NAME_TAKEN'

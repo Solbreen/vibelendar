@@ -16,9 +16,7 @@ import {
 import {
   clearUserId,
   loadHiddenIds,
-  loadUserId,
   saveHiddenIds,
-  saveUserId,
 } from './storage.js';
 import { Calendar } from './components/Calendar.js';
 import type { DayMark } from './components/DayCell.js';
@@ -30,16 +28,13 @@ import { SavePanel } from './components/SavePanel.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import { UserList, type UserListEntry } from './components/UserList.js';
 import styles from './App.module.css';
+import { vacationIssues } from '../../shared/vacation-rules.js';
 
 const SYNC_INTERVAL_MS = 60_000;
 const DEFAULT_YEAR = 2027;
 
 type Phase = 'loading' | 'login' | 'ready';
 
-interface DeleteTarget {
-  user: CalendarUserDto;
-  dayCount: number;
-}
 
 export function App(): JSX.Element {
   const [phase, setPhase] = useState<Phase>('loading');
@@ -52,12 +47,10 @@ export function App(): JSX.Element {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [busyUserId, setBusyUserId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [conflictUser, setConflictUser] = useState<UserDto | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [switchConfirm, setSwitchConfirm] = useState(false);
-  const [renameError, setRenameError] = useState<{ id: number; message: string } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const toastSeq = useRef(0);
@@ -144,14 +137,8 @@ export function App(): JSX.Element {
     let cancelled = false;
 
     const bootstrap = async (): Promise<void> => {
-      const storedId = loadUserId();
-      if (storedId === null) {
-        if (!cancelled) setPhase('login');
-        await refreshCalendar();
-        return;
-      }
       try {
-        const { user } = await api.getUser(storedId);
+        const { user } = await api.me();
         if (cancelled) return;
         setMe(user);
         meRef.current = user;
@@ -160,7 +147,7 @@ export function App(): JSX.Element {
         pushToast(`С возвращением, ${user.displayName}`);
       } catch (error) {
         if (cancelled) return;
-        if (error instanceof ApiRequestError && error.code === 'USER_NOT_FOUND') {
+        if (error instanceof ApiRequestError && (error.code === 'USER_NOT_FOUND' || error.code === 'UNAUTHORIZED')) {
           clearUserId();
           setPhase('login');
         } else if (error instanceof NetworkError) {
@@ -208,20 +195,17 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
-  const handleLogin = async (firstName: string, lastName: string): Promise<void> => {
+  const handleLogin = async (password: string): Promise<void> => {
     setLoginBusy(true);
     setLoginError(null);
     try {
-      const { user, created } = await api.login(firstName, lastName);
-      saveUserId(user.id);
+      const { user } = await api.login(password);
       setMe(user);
       meRef.current = user;
       setDraft(createDraft(user.days));
       setAnchor(null);
       setPhase('ready');
-      pushToast(
-        created ? `Создан новый пользователь ${user.displayName}` : `С возвращением, ${user.displayName}`,
-      );
+      pushToast(`С возвращением, ${user.displayName}`);
       await refreshCalendar();
     } catch (error) {
       if (error instanceof NetworkError) {
@@ -248,6 +232,12 @@ export function App(): JSX.Element {
 
   const handleSave = async (): Promise<void> => {
     if (!me || changes === 0) return;
+    setSaveError(null);
+    const issues = vacationIssues(myDraftDays);
+    if (issues.length) {
+      setSaveError(issues.join('\n'));
+      return;
+    }
     setSaving(true);
     try {
       const { user } = await api.saveDays(me.id, myDraftDays, me.version);
@@ -260,9 +250,10 @@ export function App(): JSX.Element {
       if (error instanceof ApiRequestError) {
         if (error.code === 'VERSION_CONFLICT' && error.user) {
           setConflictUser(error.user);
-        } else if (error.code === 'USER_NOT_FOUND') {
+        } else if (error.code === 'USER_NOT_FOUND' || error.code === 'UNAUTHORIZED') {
           handleSelfGone();
         } else {
+          setSaveError(error.message);
           pushToast(error.message, 'error');
         }
       } else if (error instanceof NetworkError) {
@@ -286,78 +277,14 @@ export function App(): JSX.Element {
     });
   };
 
-  const handleRename = async (
-    id: number,
-    firstName: string,
-    lastName: string,
-  ): Promise<void> => {
-    setBusyUserId(id);
-    setRenameError(null);
+  const doSwitchUser = async (): Promise<void> => {
     try {
-      const { user } = await api.rename(id, firstName, lastName);
-      if (me && id === me.id) {
-        setMe(user);
-        meRef.current = user;
-      }
-      pushToast(`Имя изменено на ${user.displayName}`);
-      await refreshCalendar();
-    } catch (error) {
-      if (error instanceof ApiRequestError) {
-        if (error.code === 'NAME_TAKEN' || error.code === 'VALIDATION_ERROR') {
-          setRenameError({ id, message: error.message });
-        } else if (error.code === 'USER_NOT_FOUND') {
-          if (me && id === me.id) handleSelfGone();
-          else {
-            pushToast('Пользователь уже удалён', 'error');
-            await refreshCalendar();
-          }
-        } else {
-          pushToast(error.message, 'error');
-        }
-      } else {
-        pushToast('Не удалось переименовать пользователя', 'error');
-      }
-    } finally {
-      setBusyUserId(null);
+      await api.logout();
+    } catch {
+      pushToast('Не удалось завершить сессию. Попробуйте снова.', 'error');
+      return;
     }
-  };
-
-  const handleDelete = async (): Promise<void> => {
-    if (!deleteTarget) return;
-    const { user } = deleteTarget;
-    setBusyUserId(user.id);
-    try {
-      await api.remove(user.id);
-      setDeleteTarget(null);
-      if (me && user.id === me.id) {
-        clearUserId();
-        setMe(null);
-        meRef.current = null;
-        setDraft(createDraft([]));
-        setAnchor(null);
-        setPhase('login');
-        pushToast('Ваш пользователь удалён, войдите снова');
-      } else {
-        pushToast(`${user.displayName} удалён`);
-      }
-      await refreshCalendar();
-    } catch (error) {
-      setDeleteTarget(null);
-      if (error instanceof ApiRequestError && error.code === 'USER_NOT_FOUND') {
-        if (me && user.id === me.id) handleSelfGone();
-        else {
-          pushToast('Пользователь уже удалён', 'error');
-          await refreshCalendar();
-        }
-      } else {
-        pushToast('Не удалось удалить пользователя', 'error');
-      }
-    } finally {
-      setBusyUserId(null);
-    }
-  };
-
-  const doSwitchUser = (): void => {
+    setSaveError(null);
     clearUserId();
     setMe(null);
     meRef.current = null;
@@ -425,6 +352,8 @@ export function App(): JSX.Element {
             onSave={() => void handleSave()}
             onReset={() => setDraft((current) => resetDraft(current))}
           />
+          {saveError ? <div role="alert" className="fieldError" style={{ whiteSpace: 'pre-line' }}>{saveError}</div> : null}
+          <p>Для сохранения нужно не менее 28 дней без праздников и непрерывный период из 14 засчитанных дней. Праздники внутри периода допустимы, в начале и конце — нет.</p>
           {calendar === null ? (
             <p className={styles.loading}>Загружаем календарь…</p>
           ) : (
@@ -444,12 +373,7 @@ export function App(): JSX.Element {
 
         <UserList
           entries={entries}
-          renameError={renameError}
-          busyId={busyUserId}
           onToggleHidden={handleToggleHidden}
-          onRename={(id, firstName, lastName) => void handleRename(id, firstName, lastName)}
-          onDelete={(user, dayCount) => setDeleteTarget({ user, dayCount })}
-          onDismissRenameError={() => setRenameError(null)}
         />
       </main>
 
@@ -457,7 +381,7 @@ export function App(): JSX.Element {
         <LoginModal
           busy={loginBusy}
           serverError={loginError}
-          onSubmit={(firstName, lastName) => void handleLogin(firstName, lastName)}
+          onSubmit={(password) => void handleLogin(password)}
         />
       ) : null}
 
@@ -475,18 +399,6 @@ export function App(): JSX.Element {
             void refreshCalendar();
           }}
           onCancel={() => setConflictUser(null)}
-        />
-      ) : null}
-
-      {deleteTarget ? (
-        <ConfirmDialog
-          title="Удаление пользователя"
-          message={`Удалить ${deleteTarget.user.displayName} и его ${deleteTarget.dayCount} дн. отпуска? Это нельзя отменить.`}
-          confirmLabel="Удалить"
-          danger
-          busy={busyUserId === deleteTarget.user.id}
-          onConfirm={() => void handleDelete()}
-          onCancel={() => setDeleteTarget(null)}
         />
       ) : null}
 

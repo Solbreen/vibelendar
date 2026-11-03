@@ -60,12 +60,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  login(firstName: string, lastName: string): Promise<{ user: UserDto; created: boolean }> {
-    return request('/api/users', {
+  login(password: string): Promise<{ user: UserDto }> {
+    return request('/api/login', {
       method: 'POST',
-      body: JSON.stringify({ firstName, lastName }),
+      body: JSON.stringify({ password }),
     });
   },
+
+  me(): Promise<{ user: UserDto }> { return request('/api/me'); },
+  logout(): Promise<void> { return request('/api/logout', { method: 'POST' }); },
 
   getUser(id: number): Promise<{ user: UserDto }> {
     return request(`/api/users/${id}`);

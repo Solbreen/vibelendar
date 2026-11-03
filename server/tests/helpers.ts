@@ -25,19 +25,18 @@ export async function closeTestApp(ctx: TestContext): Promise<void> {
   ctx.db.close();
 }
 
-/** Логин или создание пользователя; возвращает тело ответа. */
+/** Password login; session cookie is explicit in requests. */
 export async function login(
   app: FastifyInstance,
-  firstName: string,
-  lastName: string,
-): Promise<{ statusCode: number; user: UserDto; created: boolean }> {
+  password: string,
+): Promise<{ statusCode: number; user: UserDto; cookie: string }> {
   const response = await app.inject({
     method: 'POST',
-    url: '/api/users',
-    payload: { firstName, lastName },
+    url: '/api/login',
+    payload: { password },
   });
-  const body = response.json() as { user: UserDto; created: boolean };
-  return { statusCode: response.statusCode, ...body };
+  const body = response.json() as { user: UserDto };
+  return { statusCode: response.statusCode, ...body, cookie: String(response.headers['set-cookie']).split(';')[0]! };
 }
 
 export function errorOf(response: { json: () => unknown }): {

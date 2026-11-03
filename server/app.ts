@@ -6,6 +6,8 @@ import { registerUserRoutes } from './routes/users.js';
 import { registerCalendarRoutes } from './routes/calendar.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerStatic } from './static.js';
+import { registerAuth } from './auth.js';
+import { fixedUsers } from './accounts.js';
 
 export interface AppDeps {
   db: Db;
@@ -58,6 +60,8 @@ export async function buildApp(
   });
 
   registerHealthRoutes(app);
+  fixedUsers(deps.db);
+  registerAuth(app, deps.db);
   registerUserRoutes(app, deps);
   registerCalendarRoutes(app, deps);
 

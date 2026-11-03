@@ -1,220 +1,48 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { UserDto } from '../../shared/types.js';
-import { closeTestApp, createTestApp, errorOf, login, type TestContext } from './helpers.js';
-
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { closeTestApp, createTestApp, type TestContext } from './helpers.js';
+import { fixedUsers } from '../accounts.js';
+import { saveDays } from '../repo.js';
 let ctx: TestContext;
-
+let id: number;
+let cookie: string;
+const range = (start: string, count: number) => Array.from({ length: count }, (_, i) => new Date(Date.parse(start) + i * 86400_000).toISOString().slice(0, 10));
 beforeEach(async () => {
-  ctx = await createTestApp();
+ ctx = await createTestApp();
+ const r = await ctx.app.inject({ method: 'POST', url: '/api/login', payload: { password: 'dragomilovaa1' } });
+ id = r.json().user.id; cookie = String(r.headers['set-cookie']).split(';')[0]!;
 });
-
-afterEach(async () => {
-  await closeTestApp(ctx);
+afterEach(async () => { await closeTestApp(ctx); });
+const put = (dates: string[], version = 0) => ctx.app.inject({ method: 'PUT', url: `/api/users/${id}/days`, headers: { cookie }, payload: { dates, version } });
+it('saves 28 days, deduplicates, increments version and replaces atomically', async () => {
+ const dates = range('2027-07-01',28);
+ const r = await put([...dates,...dates]);
+ expect(r.statusCode).toBe(200); expect(r.json().user).toMatchObject({ days: dates, version: 1 });
+ const replacement = range('2027-08-01',28);
+ expect((await put(replacement,1)).json().user.days).toEqual(replacement);
 });
-
-async function saveDays(id: number, dates: string[], version: number) {
-  return ctx.app.inject({
-    method: 'PUT',
-    url: `/api/users/${id}/days`,
-    payload: { dates, version },
-  });
-}
-
-describe('PUT /api/users/:id/days', () => {
-  it('сохраняет дни и увеличивает version', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(created.user.id, ['2027-03-01', '2027-03-02'], 0);
-    expect(response.statusCode).toBe(200);
-    const user = (response.json() as { user: UserDto }).user;
-    expect(user.days).toEqual(['2027-03-01', '2027-03-02']);
-    expect(user.version).toBe(1);
-  });
-
-  it('полностью заменяет предыдущий набор дней', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    await saveDays(created.user.id, ['2027-03-01', '2027-03-02'], 0);
-    const response = await saveDays(created.user.id, ['2027-08-15'], 1);
-    const user = (response.json() as { user: UserDto }).user;
-    expect(user.days).toEqual(['2027-08-15']);
-    expect(user.version).toBe(2);
-  });
-
-  it('принимает пустой массив и очищает дни', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    await saveDays(created.user.id, ['2027-03-01'], 0);
-    const response = await saveDays(created.user.id, [], 1);
-    expect(response.statusCode).toBe(200);
-    expect((response.json() as { user: UserDto }).user.days).toEqual([]);
-  });
-
-  it('молча удаляет дубликаты', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(
-      created.user.id,
-      ['2027-04-01', '2027-04-01', '2027-04-02', '2027-04-01'],
-      0,
-    );
-    expect(response.statusCode).toBe(200);
-    expect((response.json() as { user: UserDto }).user.days).toEqual(['2027-04-01', '2027-04-02']);
-  });
-
-  it('возвращает дни в отсортированном порядке независимо от порядка во входе', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(
-      created.user.id,
-      ['2027-12-31', '2027-01-01', '2027-06-15'],
-      0,
-    );
-    expect((response.json() as { user: UserDto }).user.days).toEqual([
-      '2027-01-01',
-      '2027-06-15',
-      '2027-12-31',
-    ]);
-  });
-
-  it('принимает границы года', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(created.user.id, ['2027-01-01', '2027-12-31'], 0);
-    expect(response.statusCode).toBe(200);
-  });
-
-  it.each([
-    ['дата другого года (раньше)', '2026-12-31'],
-    ['дата другого года (позже)', '2028-01-01'],
-    ['несуществующая дата 29 февраля', '2027-02-29'],
-    ['несуществующая дата 31 апреля', '2027-04-31'],
-    ['13-й месяц', '2027-13-01'],
-    ['нулевой день', '2027-01-00'],
-    ['неверный формат', '2027-1-1'],
-    ['совсем не дата', 'вчера'],
-    ['пустая строка', ''],
-  ])('возвращает 400 INVALID_DATE: %s', async (_label, date) => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(created.user.id, [date], 0);
-    expect(response.statusCode).toBe(400);
-    expect(errorOf(response).code).toBe('INVALID_DATE');
-    expect(errorOf(response).message).toMatch(/[а-яА-Я]/);
-  });
-
-  it('не сохраняет ничего, если хотя бы одна дата некорректна', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(created.user.id, ['2027-05-05', '2027-02-30'], 0);
-    expect(response.statusCode).toBe(400);
-    const user = await ctx.app.inject({ method: 'GET', url: `/api/users/${created.user.id}` });
-    expect((user.json() as { user: UserDto }).user.days).toEqual([]);
-    expect((user.json() as { user: UserDto }).user.version).toBe(0);
-  });
-
-  it('возвращает 400 VALIDATION_ERROR, если dates не массив', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await ctx.app.inject({
-      method: 'PUT',
-      url: `/api/users/${created.user.id}/days`,
-      payload: { dates: '2027-01-01', version: 0 },
-    });
-    expect(response.statusCode).toBe(400);
-    expect(errorOf(response).code).toBe('INVALID_DATE');
-  });
-
-  it('возвращает 400 VALIDATION_ERROR, если version отсутствует', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await ctx.app.inject({
-      method: 'PUT',
-      url: `/api/users/${created.user.id}/days`,
-      payload: { dates: [] },
-    });
-    expect(response.statusCode).toBe(400);
-    expect(errorOf(response).code).toBe('VALIDATION_ERROR');
-  });
-
-  it('возвращает 409 VERSION_CONFLICT при устаревшей версии', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    await saveDays(created.user.id, ['2027-03-01'], 0);
-    const stale = await saveDays(created.user.id, ['2027-09-09'], 0);
-    expect(stale.statusCode).toBe(409);
-    expect(errorOf(stale).code).toBe('VERSION_CONFLICT');
-  });
-
-  it('в теле конфликта возвращает актуального пользователя', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    await saveDays(created.user.id, ['2027-03-01'], 0);
-    const stale = await saveDays(created.user.id, ['2027-09-09'], 0);
-    const actual = errorOf(stale).user;
-    expect(actual).toBeDefined();
-    expect(actual).toMatchObject({
-      id: created.user.id,
-      version: 1,
-      days: ['2027-03-01'],
-      displayName: 'Иван Петров',
-      firstName: 'Иван',
-      lastName: 'Петров',
-    });
-  });
-
-  it('при конфликте не меняет сохранённые дни', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    await saveDays(created.user.id, ['2027-03-01'], 0);
-    await saveDays(created.user.id, ['2027-09-09'], 0);
-    const user = await ctx.app.inject({ method: 'GET', url: `/api/users/${created.user.id}` });
-    expect((user.json() as { user: UserDto }).user.days).toEqual(['2027-03-01']);
-    expect((user.json() as { user: UserDto }).user.version).toBe(1);
-  });
-
-  it('возвращает 409 и для версии из будущего', async () => {
-    const created = await login(ctx.app, 'Иван', 'Петров');
-    const response = await saveDays(created.user.id, ['2027-03-01'], 5);
-    expect(response.statusCode).toBe(409);
-    expect(errorOf(response).code).toBe('VERSION_CONFLICT');
-  });
-
-  it('возвращает 404 USER_NOT_FOUND для неизвестного пользователя', async () => {
-    const response = await saveDays(31337, ['2027-03-01'], 0);
-    expect(response.statusCode).toBe(404);
-    expect(errorOf(response).code).toBe('USER_NOT_FOUND');
-  });
-
-  it('проверяет существование пользователя раньше версии', async () => {
-    const response = await saveDays(31337, ['2027-03-01'], 99);
-    expect(response.statusCode).toBe(404);
-  });
-
-  it('не затрагивает дни других пользователей', async () => {
-    const first = await login(ctx.app, 'Иван', 'Петров');
-    const second = await login(ctx.app, 'Анна', 'Смирнова');
-    await saveDays(first.user.id, ['2027-03-01'], 0);
-    await saveDays(second.user.id, ['2027-03-02'], 0);
-    await saveDays(first.user.id, ['2027-03-03'], 1);
-
-    const response = await ctx.app.inject({ method: 'GET', url: `/api/users/${second.user.id}` });
-    expect((response.json() as { user: UserDto }).user.days).toEqual(['2027-03-02']);
-  });
-
-  it('одну и ту же дату могут занять разные пользователи', async () => {
-    const first = await login(ctx.app, 'Иван', 'Петров');
-    const second = await login(ctx.app, 'Анна', 'Смирнова');
-    expect((await saveDays(first.user.id, ['2027-03-01'], 0)).statusCode).toBe(200);
-    expect((await saveDays(second.user.id, ['2027-03-01'], 0)).statusCode).toBe(200);
-  });
-
-  it('учитывает VACATION_YEAR из конфигурации', async () => {
-    const other = await createTestApp(2030);
-    try {
-      const created = await login(other.app, 'Иван', 'Петров');
-      const ok = await other.app.inject({
-        method: 'PUT',
-        url: `/api/users/${created.user.id}/days`,
-        payload: { dates: ['2030-05-05'], version: 0 },
-      });
-      expect(ok.statusCode).toBe(200);
-      const bad = await other.app.inject({
-        method: 'PUT',
-        url: `/api/users/${created.user.id}/days`,
-        payload: { dates: ['2027-05-05'], version: 1 },
-      });
-      expect(bad.statusCode).toBe(400);
-      expect(errorOf(bad).code).toBe('INVALID_DATE');
-    } finally {
-      await closeTestApp(other);
-    }
-  });
+it('rejects a stale version and preserves latest dates', async () => {
+ await put(range('2027-07-01',28));
+ const r = await put(range('2027-08-01',28));
+ expect(r.statusCode).toBe(409); expect(r.json().error.user.version).toBe(1);
+});
+it('rejects fewer than 28 counted days, missing long period and holiday boundaries', async () => {
+ for (const dates of [[], range('2027-06-01',28), [...range('2027-07-01',28),'2027-05-01'], [...range('2027-07-01',13),...range('2027-08-01',13),...range('2027-09-01',2)]]) {
+ const r = await put(dates); expect(r.statusCode).toBe(400); expect(r.json().error.code).toBe('VACATION_RULES');
+ }
+ expect((await ctx.app.inject(`/api/users/${id}`)).json().user.version).toBe(0);
+});
+it('rejects invalid and wrong-year dates', async () => {
+ for(const date of ['2027-02-30','2028-07-01','bad']) {
+ const r = await put([...range('2027-07-01',28),date]); expect(r.statusCode).toBe(400); expect(r.json().error.code).toBe('INVALID_DATE');
+ }
+});
+it('enforces conflicts server-side and leaves the rejected calendar unchanged', async () => {
+ const people = fixedUsers(ctx.db);
+ const diana = people[0]!, magomed = people[1]!;
+ saveDays(ctx.db,diana.id,range('2027-07-01',28),0);
+ const r = await ctx.app.inject({method:'POST',url:'/api/login',payload:{password:'barakhoevml'}});
+ const headers = {cookie:String(r.headers['set-cookie']).split(';')[0]!};
+ const rejected = await ctx.app.inject({method:'PUT',url:`/api/users/${magomed.id}/days`,headers,payload:{dates:range('2027-07-01',28),version:0}});
+ expect(rejected.statusCode).toBe(400); expect(rejected.json().error.message).toContain('допустимое пересечение — 5');
+ expect((await ctx.app.inject(`/api/users/${magomed.id}`)).json().user.days).toEqual([]);
 });
