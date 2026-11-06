@@ -8,8 +8,19 @@ import { currentUserId } from '../auth.js';
 import { fixedUsers } from '../accounts.js';
 import { overlapIssues } from '../vacation-rules.js';
 import { vacationIssues } from '../../shared/vacation-rules.js';
+import { z } from 'zod';
 
 export function registerUserRoutes(app: FastifyInstance, { db, config }: AppDeps): void {
+  app.post('/api/users/:id/days/clear', async (request) => {
+    const owner = currentUserId(db, request);
+    const { id } = parseOrThrow(userIdParamsSchema, request.params);
+    if (owner !== id) throw new ApiError(403, 'FORBIDDEN', 'Можно изменять только свои дни отпуска');
+    const { version } = parseOrThrow(z.object({ version: z.number().int().min(0) }), request.body);
+    const result = saveDays(db, id, [], version);
+    if (result.status === 'not_found') throw userNotFound();
+    if (result.status === 'conflict') throw versionConflict(result.user);
+    return { user: result.user };
+  });
   app.get('/api/users/:id', async (request) => {
     const { id } = parseOrThrow(userIdParamsSchema, request.params);
     const user = fixedUsers(db).find((user) => user.id === id);

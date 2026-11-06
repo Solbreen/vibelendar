@@ -5,9 +5,11 @@ interface SavePanelProps {
   saving: boolean;
   onSave: () => void;
   onReset: () => void;
+  onClear: () => void;
+  canClear: boolean;
 }
 
-export function SavePanel({ changes, saving, onSave, onReset }: SavePanelProps): JSX.Element {
+export function SavePanel({ changes, saving, onSave, onReset, onClear, canClear }: SavePanelProps): JSX.Element {
   const disabled = changes === 0 || saving;
 
   return (
@@ -16,6 +18,9 @@ export function SavePanel({ changes, saving, onSave, onReset }: SavePanelProps):
         {changes > 0 ? `Несохранённых изменений: ${changes}` : 'Все изменения сохранены'}
       </span>
       <div className={styles.actions}>
+        <button type="button" className="button" onClick={onClear} disabled={!canClear || saving}>
+          Очистить
+        </button>
         <button type="button" className="button" onClick={onReset} disabled={disabled}>
           Отменить
         </button>

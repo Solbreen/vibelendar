@@ -47,6 +47,7 @@ export function App(): JSX.Element {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const [conflictUser, setConflictUser] = useState<UserDto | null>(null);
@@ -230,23 +231,25 @@ export function App(): JSX.Element {
     setAnchor(date);
   };
 
-  const handleSave = async (): Promise<void> => {
-    if (!me || changes === 0) return;
+  const handleSave = async (clear = false): Promise<void> => {
+    if (!me || (!clear && changes === 0)) return;
     setSaveError(null);
-    const issues = vacationIssues(myDraftDays);
+    const issues = clear ? [] : vacationIssues(myDraftDays);
     if (issues.length) {
       setSaveError(issues.join('\n'));
       return;
     }
     setSaving(true);
     try {
-      const { user } = await api.saveDays(me.id, myDraftDays, me.version);
+      const { user } = clear ? await api.clearDays(me.id, me.version) : await api.saveDays(me.id, myDraftDays, me.version);
       setMe(user);
       meRef.current = user;
       setDraft(createDraft(user.days));
-      pushToast('Изменения сохранены');
+      setClearConfirm(false);
+      pushToast(clear ? 'Сохранённые дни отпуска очищены' : 'Изменения сохранены');
       await refreshCalendar();
     } catch (error) {
+      if (clear) setClearConfirm(false);
       if (error instanceof ApiRequestError) {
         if (error.code === 'VERSION_CONFLICT' && error.user) {
           setConflictUser(error.user);
@@ -351,6 +354,8 @@ export function App(): JSX.Element {
             saving={saving}
             onSave={() => void handleSave()}
             onReset={() => setDraft((current) => resetDraft(current))}
+            onClear={() => setClearConfirm(true)}
+            canClear={Boolean(me && me.days.length > 0)}
           />
           {saveError ? <div role="alert" className="fieldError" style={{ whiteSpace: 'pre-line' }}>{saveError}</div> : null}
           <p>Для сохранения нужно не менее 28 дней без праздников и непрерывный период из 14 засчитанных дней. Праздники внутри периода допустимы, в начале и конце — нет.</p>
@@ -385,6 +390,9 @@ export function App(): JSX.Element {
         />
       ) : null}
 
+      {clearConfirm ? (
+        <ConfirmDialog title="Очистить отпуск?" message={changes > 0 ? 'Все сохранённые дни отпуска будут удалены, а несохранённые изменения потеряются.' : 'Все сохранённые дни вашего отпуска будут удалены.'} confirmLabel="Очистить" danger busy={saving} onConfirm={() => void handleSave(true)} onCancel={() => setClearConfirm(false)} />
+      ) : null}
       {conflictUser ? (
         <ConfirmDialog
           title="Данные изменились"

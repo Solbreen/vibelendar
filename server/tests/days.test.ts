@@ -20,6 +20,20 @@ it('saves 28 days, deduplicates, increments version and replaces atomically', as
  const replacement = range('2027-08-01',28);
  expect((await put(replacement,1)).json().user.days).toEqual(replacement);
 });
+it('clears saved days only for the owner and rejects stale versions', async () => {
+ const dates = range('2027-07-01',28);
+ await put(dates);
+ const url = `/api/users/${id}/days/clear`;
+ expect((await ctx.app.inject({method:'POST',url,payload:{version:1}})).statusCode).toBe(401);
+ const other = await ctx.app.inject({method:'POST',url:'/api/login',payload:{password:'gritsvv'}});
+ const otherCookie = String(other.headers['set-cookie']).split(';')[0]!;
+ expect((await ctx.app.inject({method:'POST',url,headers:{cookie:otherCookie},payload:{version:1}})).statusCode).toBe(403);
+ expect((await ctx.app.inject({method:'POST',url,headers:{cookie},payload:{version:0}})).statusCode).toBe(409);
+ const result = await ctx.app.inject({method:'POST',url,headers:{cookie},payload:{version:1}});
+ expect(result.statusCode).toBe(200);
+ expect(result.json().user).toMatchObject({days:[],version:2});
+ expect((await ctx.app.inject('/api/calendar')).json().users.find((u: {id:number}) => u.id === id).days).toEqual([]);
+});
 it('rejects a stale version and preserves latest dates', async () => {
  await put(range('2027-07-01',28));
  const r = await put(range('2027-08-01',28));

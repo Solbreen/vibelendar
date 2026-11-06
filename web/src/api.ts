@@ -85,6 +85,10 @@ export const api = {
     });
   },
 
+  clearDays(id: number, version: number): Promise<{ user: UserDto }> {
+    return request(`/api/users/${id}/days/clear`, { method: 'POST', body: JSON.stringify({ version }) });
+  },
+
   rename(id: number, firstName: string, lastName: string): Promise<{ user: UserDto }> {
     return request(`/api/users/${id}`, {
       method: 'PATCH',
