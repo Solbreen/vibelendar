@@ -37,10 +37,10 @@ npm run dev
 
 Откроется два процесса:
 
-- Vite dev server — http://localhost:5173 (интерфейс, запросы `/api/*` проксируются на Fastify);
+- Vite dev server — http://localhost:5173/vibelendar/ (интерфейс, запросы `/vibelendar/api/*` проксируются на Fastify);
 - Fastify — http://localhost:3000 (API, база в `./data/vacations.db`).
 
-Работать нужно с http://localhost:5173.
+Работать нужно с http://localhost:5173/vibelendar/.
 
 Прочие команды:
 

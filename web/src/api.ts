@@ -27,7 +27,7 @@ export class NetworkError extends Error {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(`${import.meta.env.BASE_URL}${url.replace(/^\//, '')}`, {
       ...init,
       headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     });

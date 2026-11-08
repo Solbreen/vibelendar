@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestApp, closeTestApp, type TestContext } from './helpers.js';
 let ctx: TestContext;
+it('supports login and calendar under the application prefix', async () => {
+  const context = await createTestApp();
+  try {
+    const calendar = await context.app.inject('/vibelendar/api/calendar');
+    expect(calendar.statusCode).toBe(200);
+    expect(calendar.json().users).toHaveLength(10);
+    const login = await context.app.inject({ method: 'POST', url: '/vibelendar/api/login', payload: { password: 'kuprinadn' } });
+    expect(login.statusCode).toBe(200);
+  } finally { await closeTestApp(context); }
+});
 beforeEach(async () => { ctx = await createTestApp(); });
 afterEach(async () => { await closeTestApp(ctx); });
 

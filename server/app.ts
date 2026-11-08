@@ -27,6 +27,7 @@ export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
+    rewriteUrl: (request) => (request.url ?? '/').replace(/^\/vibelendar(?=\/|\?|$)/, '') || '/',
     logger: options.logger ?? false,
     bodyLimit: BODY_LIMIT,
   });
