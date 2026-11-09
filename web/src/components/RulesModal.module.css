@@ -1,0 +1,13 @@
+.content {
+  max-height: min(65vh, 650px);
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.content ul {
+  padding-left: 22px;
+}
+
+.content li + li {
+  margin-top: 8px;
+}

@@ -25,6 +25,7 @@ import { Header } from './components/Header.js';
 import { Legend } from './components/Legend.js';
 import { LoginModal } from './components/LoginModal.js';
 import { SavePanel } from './components/SavePanel.js';
+import { RulesModal } from './components/RulesModal.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import { UserList, type UserListEntry } from './components/UserList.js';
 import styles from './App.module.css';
@@ -47,6 +48,7 @@ export function App(): JSX.Element {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -376,12 +378,16 @@ export function App(): JSX.Element {
           )}
         </div>
 
+        <div className={styles.teamColumn}>
+        <button type="button" className={`button ${styles.rulesButton}`} onClick={() => setRulesOpen(true)}>Правила выбора дней</button>
         <UserList
           entries={entries}
           onToggleHidden={handleToggleHidden}
         />
+        </div>
       </main>
 
+      {rulesOpen ? <RulesModal onClose={() => setRulesOpen(false)} /> : null}
       {phase === 'login' ? (
         <LoginModal
           busy={loginBusy}

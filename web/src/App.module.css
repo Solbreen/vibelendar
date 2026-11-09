@@ -22,6 +22,15 @@
   min-width: 0;
 }
 
+.teamColumn {
+  min-width: 0;
+}
+
+.rulesButton {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
 .loading {
   color: var(--text-muted);
 }
