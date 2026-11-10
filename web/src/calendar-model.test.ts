@@ -32,13 +32,14 @@ describe('buildMonth', () => {
     expect(days[27]!.date).toBe('2027-02-28');
   });
 
-  it('помечает выходными только субботы и воскресенья', () => {
-    const month = buildMonth(2027, 1);
-    for (const week of month.weeks) {
-      week.forEach((cell, index) => {
-        if (cell) expect(cell.weekend).toBe(index >= 5);
-      });
-    }
+  it('учитывает переносы выходных в производственном календаре', () => {
+    const days = buildYear(2027).flatMap((month) => month.weeks.flat());
+    const byDate = (date: string) => days.find((cell) => cell?.date === date);
+    expect(byDate('2027-02-20')).toMatchObject({ weekend: false, holiday: null });
+    expect(byDate('2027-02-22')).toMatchObject({ weekend: true, holiday: null });
+    expect(byDate('2027-11-05')).toMatchObject({ weekend: true, holiday: null });
+    expect(byDate('2027-12-31')).toMatchObject({ weekend: true, holiday: null });
+    expect(byDate('2027-01-02')).toMatchObject({ weekend: false, holiday: 'Новогодние каникулы' });
   });
 
   it('использует русское название месяца', () => {

@@ -10,7 +10,7 @@ export interface Holiday {
 
 /**
  * Нерабочие праздничные дни. Даты одинаковы из года в год и применяются
- * к VACATION_YEAR. Переносы выходных сознательно не реализованы.
+ * к VACATION_YEAR. Переносы выходных 2027 года описаны отдельно ниже.
  *
  * Единственный источник правды: используется и сервером (подсчёт dayCount),
  * и клиентом (подсветка ячеек, подсказки, счётчики).
@@ -31,6 +31,33 @@ export const HOLIDAYS: readonly Holiday[] = [
   { month: 6, day: 12, name: 'День России' },
   { month: 11, day: 4, name: 'День народного единства' },
 ];
+
+/** Выходные, перенесённые постановлением для производственного календаря 2027 года. */
+export const TRANSFERRED_DAYS_OFF_2027 = new Set([
+  '2027-02-22',
+  '2027-11-05',
+  '2027-12-31',
+]);
+
+/** Субботы и воскресенья, с которых перенесён выходной. */
+export const TRANSFERRED_WORKING_DAYS_2027 = new Set([
+  '2027-01-02',
+  '2027-01-03',
+  '2027-02-20',
+]);
+
+/**
+ * Признак выходного по производственному календарю.
+ * Праздники проверяются отдельно: 2 и 3 января остаются нерабочими праздниками.
+ */
+export function isProductionWeekend(date: string): boolean {
+  const parsed = parseIsoDate(date);
+  if (!parsed) return false;
+  if (TRANSFERRED_DAYS_OFF_2027.has(date)) return true;
+  if (TRANSFERRED_WORKING_DAYS_2027.has(date)) return false;
+  const day = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day)).getUTCDay();
+  return day === 0 || day === 6;
+}
 
 /** Ключ 'MM-DD' → название праздника. */
 const HOLIDAY_BY_MONTH_DAY = new Map<string, string>(

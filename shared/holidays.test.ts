@@ -5,6 +5,7 @@ import {
   countVacationDaysByMonth,
   findHolidayName,
   isHoliday,
+  isProductionWeekend,
 } from './holidays.js';
 import { daysInMonth, formatIsoDate } from './dates.js';
 
@@ -124,6 +125,30 @@ describe('countVacationDays', () => {
 
   it('весь год минус праздники', () => {
     expect(countVacationDays(allDatesOfYear(YEAR))).toBe(365 - HOLIDAYS.length);
+  });
+});
+
+describe('переносы выходных 2027 года', () => {
+  it.each(['2027-02-22', '2027-11-05', '2027-12-31'])('%s — перенесённый выходной', (date) => {
+    expect(isProductionWeekend(date)).toBe(true);
+    expect(isHoliday(date)).toBe(false);
+    expect(countVacationDays([date])).toBe(1);
+  });
+
+  it('20 февраля — рабочая суббота', () => {
+    expect(isProductionWeekend('2027-02-20')).toBe(false);
+    expect(isHoliday('2027-02-20')).toBe(false);
+  });
+
+  it.each(['2027-01-02', '2027-01-03'])('%s остаётся праздником после переноса выходного', (date) => {
+    expect(isProductionWeekend(date)).toBe(false);
+    expect(isHoliday(date)).toBe(true);
+    expect(countVacationDays([date])).toBe(0);
+  });
+
+  it('обычные суббота и воскресенье остаются выходными', () => {
+    expect(isProductionWeekend('2027-02-06')).toBe(true);
+    expect(isProductionWeekend('2027-02-07')).toBe(true);
   });
 });
 

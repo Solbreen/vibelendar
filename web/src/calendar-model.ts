@@ -1,5 +1,5 @@
-import { daysInMonth, formatIsoDate, isWeekend, weekdayMondayFirst } from '../../shared/dates.js';
-import { findHolidayName } from '../../shared/holidays.js';
+import { daysInMonth, formatIsoDate, weekdayMondayFirst } from '../../shared/dates.js';
+import { findHolidayName, isProductionWeekend } from '../../shared/holidays.js';
 
 export const MONTH_NAMES_RU = [
   'Январь',
@@ -60,7 +60,7 @@ export function buildMonth(year: number, month: number): MonthModel {
     cells.push({
       date,
       day,
-      weekend: isWeekend(year, month, day),
+      weekend: isProductionWeekend(date),
       holiday: findHolidayName(date),
     });
   }
